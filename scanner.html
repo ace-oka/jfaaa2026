@@ -146,14 +146,14 @@
         .then(function (r) { return r.json(); })
         .then(function (res) {
           if (res.result === 'ok') {
-            showResult('ok', '? 受付完了<br>' + res.name + ' 様<br>' + res.time);
+            showResult('ok', '◎ 受付完了<br>' + res.name + ' 様<br>' + res.time);
             checkinCount++;
             counterSpan.textContent = checkinCount;
             beep();
           } else if (res.result === 'already') {
-            showResult('already', '? 受付済みです<br>' + res.name + ' 様<br>（' + res.time + '）');
+            showResult('already', '◎ 受付済みです<br>' + res.name + ' 様<br>（' + res.time + '）');
           } else if (res.result === 'not_found') {
-            showResult('notfound', '? 該当する申込データが見つかりません<br>QRコードをご確認ください');
+            showResult('notfound', '◆ 該当する申込データが見つかりません<br>QRコードをご確認ください');
           } else {
             showResult('notfound', 'エラー：' + (res.message || '不明なエラー'));
           }

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>イベント受付スキャン</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", Arial, sans-serif;
+      margin: 0;
+      padding: 16px;
+      background: #f5f5f7;
+    }
+    h1 {
+      font-size: 18px;
+      text-align: center;
+      margin: 4px 0 16px;
+      color: #222;
+    }
+    #staffBox {
+      text-align: center;
+      margin-bottom: 12px;
+    }
+    #staffName {
+      padding: 8px;
+      font-size: 14px;
+      width: 200px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+    #reader {
+      width: 100%;
+      max-width: 400px;
+      margin: 0 auto;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    #result {
+      max-width: 400px;
+      margin: 16px auto;
+      padding: 20px;
+      border-radius: 12px;
+      text-align: center;
+      font-size: 18px;
+      font-weight: bold;
+      min-height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      line-height: 1.6;
+      background: #eee;
+      color: #333;
+    }
+    .ok { background: #d4edda !important; color: #155724 !important; }
+    .already { background: #fff3cd !important; color: #856404 !important; }
+    .notfound { background: #f8d7da !important; color: #721c24 !important; }
+    .busy { background: #e2e3e5 !important; color: #383d41 !important; }
+    #count {
+      text-align: center;
+      color: #666;
+      font-size: 13px;
+      margin-top: 8px;
+    }
+    #configWarning {
+      max-width: 400px;
+      margin: 0 auto 12px;
+      padding: 12px;
+      background: #f8d7da;
+      color: #721c24;
+      border-radius: 8px;
+      font-size: 13px;
+      text-align: center;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>イベント受付スキャン</h1>
+  <div id="configWarning">
+    EXEC_URL が設定されていません。このファイル内の EXEC_URL を、
+    デプロイしたApps ScriptウェブアプリのURL（.../exec）に書き換えてください。
+  </div>
+  <div id="staffBox">
+    担当者名：<input id="staffName" placeholder="例：山田">
+  </div>
+  <div id="reader"></div>
+  <div id="result">QRコードを読み取ってください</div>
+  <div id="count">本日の受付件数：<span id="counter">0</span>件</div>
+
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script>
+    // ▼▼▼ ここを、デプロイしたApps ScriptウェブアプリのURLに書き換えてください ▼▼▼
+    // 例: 'https://script.google.com/macros/s/AKfycb.../exec'
+    const EXEC_URL = 'https://script.google.com/a/macros/jvpm.club/s/AKfycbx6Iwo3Q4c78sjPTTCQRPptR-yaLefjcywcpJoSM9Os2Uli-I4mzH73nacvGKQNpk6j/exec';
+    // ▲▲▲ ここまで ▲▲▲
+
+    let checkinCount = 0;
+    let isProcessing = false;
+
+    if (!EXEC_URL || EXEC_URL.indexOf('script.google.com') === -1) {
+      document.getElementById('configWarning').style.display = 'block';
+    }
+
+    const staffInput = document.getElementById('staffName');
+    staffInput.value = localStorage.getItem('staffName') || '';
+    staffInput.addEventListener('change', function () {
+      localStorage.setItem('staffName', staffInput.value);
+    });
+
+    const resultDiv = document.getElementById('result');
+    const counterSpan = document.getElementById('counter');
+
+    function showResult(cls, html) {
+      resultDiv.className = cls;
+      resultDiv.innerHTML = html;
+    }
+
+    function beep() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.frequency.value = 880;
+        g.gain.value = 0.1;
+        o.start();
+        setTimeout(function () { o.stop(); ctx.close(); }, 150);
+      } catch (e) { /* ignore */ }
+    }
+
+    function onScanSuccess(decodedText) {
+      if (isProcessing) return;
+      isProcessing = true;
+      showResult('busy', '確認中…');
+
+      // Content-Type を text/plain にすることで CORS のプリフライトを回避する
+      // （Apps Scriptは OPTIONS リクエストに対応していないため）
+      fetch(EXEC_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ token: decodedText, staffName: staffInput.value })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          if (res.result === 'ok') {
+            showResult('ok', '? 受付完了<br>' + res.name + ' 様<br>' + res.time);
+            checkinCount++;
+            counterSpan.textContent = checkinCount;
+            beep();
+          } else if (res.result === 'already') {
+            showResult('already', '? 受付済みです<br>' + res.name + ' 様<br>（' + res.time + '）');
+          } else if (res.result === 'not_found') {
+            showResult('notfound', '? 該当する申込データが見つかりません<br>QRコードをご確認ください');
+          } else {
+            showResult('notfound', 'エラー：' + (res.message || '不明なエラー'));
+          }
+          setTimeout(function () {
+            isProcessing = false;
+            showResult('', 'QRコードを読み取ってください');
+          }, 2500);
+        })
+        .catch(function (err) {
+          showResult('notfound', '通信エラー：' + err.message + '<br>EXEC_URLの設定をご確認ください');
+          setTimeout(function () { isProcessing = false; }, 2500);
+        });
+    }
+
+    const qrScanner = new Html5Qrcode('reader');
+    Html5Qrcode.getCameras().then(function (cameras) {
+      if (cameras && cameras.length) {
+        qrScanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: 250 },
+          onScanSuccess
+        ).catch(function (err) {
+          showResult('notfound', 'カメラを起動できません: ' + err);
+        });
+      } else {
+        showResult('notfound', 'カメラが見つかりません');
+      }
+    }).catch(function (err) {
+      showResult('notfound', 'カメラへのアクセスが許可されていません: ' + err);
+    });
+  </script>
+</body>
+</html>
